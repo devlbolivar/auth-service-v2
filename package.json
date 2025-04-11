@@ -2,8 +2,18 @@
   "name": "auth-service-v2",
   "version": "1.0.0",
   "main": "index.js",
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "authentication",
+    "jwt",
+    "express",
+    "mongodb",
+    "typescript",
+    "rest-api",
+    "user-management",
+    "password-reset",
+    "refresh-token"
+  ],
+  "author": "Luis Bolivar",
   "license": "ISC",
   "description": "",
   "dependencies": {
