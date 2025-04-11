@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import app from "../src/app";
 import User from "../src/models/user.model";
+import { testStore } from "../src/middleware/rateLimiter";
 
 let mongoServer: MongoMemoryServer;
 
@@ -14,12 +15,21 @@ beforeAll(async () => {
 
   // Set JWT_SECRET environment variable for all tests
   process.env.JWT_SECRET = "test_secret_key";
+  process.env.NODE_ENV = "test";
 });
 
 afterAll(async () => {
   // Close the connection and stop the in-memory server
   await mongoose.disconnect();
   await mongoServer.stop();
+});
+
+// Clear the test store and database before each test
+beforeEach(async () => {
+  // Clear the test store
+  testStore.clear();
+  // Clear all collections
+  await User.deleteMany({});
 });
 
 describe("Auth API Integration Tests", () => {
@@ -50,10 +60,14 @@ describe("Auth API Integration Tests", () => {
   });
 
   it("should refresh access token with valid refresh token", async () => {
-    // First, login to get tokens
+    // First, create and login a user
+    await request(app)
+      .post("/api/auth/signup")
+      .send({ email: "refresh@example.com", password: "mypassword" });
+
     const loginRes = await request(app)
       .post("/api/auth/login")
-      .send({ email: "login@example.com", password: "mypassword" });
+      .send({ email: "refresh@example.com", password: "mypassword" });
 
     const { refreshToken } = loginRes.body;
 
@@ -75,10 +89,14 @@ describe("Auth API Integration Tests", () => {
   });
 
   it("should logout and invalidate refresh token", async () => {
-    // First, login to get tokens
+    // First, create and login a user
+    await request(app)
+      .post("/api/auth/signup")
+      .send({ email: "logout@example.com", password: "mypassword" });
+
     const loginRes = await request(app)
       .post("/api/auth/login")
-      .send({ email: "login@example.com", password: "mypassword" });
+      .send({ email: "logout@example.com", password: "mypassword" });
 
     const { refreshToken } = loginRes.body;
 
@@ -103,7 +121,7 @@ describe("Protected Routes Integration Tests", () => {
 
   beforeEach(async () => {
     // Create a user and get token for protected route tests
-    await request(app)
+    const signupRes = await request(app)
       .post("/api/auth/signup")
       .send({ email: "protected@example.com", password: "securepass" });
 
@@ -145,6 +163,7 @@ describe("Password Reset Integration Tests", () => {
   it("should request password reset for existing user", async () => {
     const res = await request(app)
       .post("/api/auth/request-password-reset")
+      .set("X-Forwarded-For", "192.168.1.1")
       .send({ email: testEmail });
 
     expect(res.statusCode).toEqual(200);
@@ -161,6 +180,7 @@ describe("Password Reset Integration Tests", () => {
   it("should request password reset for non-existent user", async () => {
     const res = await request(app)
       .post("/api/auth/request-password-reset")
+      .set("X-Forwarded-For", "192.168.1.2")
       .send({ email: "nonexistent@example.com" });
 
     expect(res.statusCode).toEqual(200);
@@ -174,15 +194,19 @@ describe("Password Reset Integration Tests", () => {
     // First, get a reset token
     const requestRes = await request(app)
       .post("/api/auth/request-password-reset")
+      .set("X-Forwarded-For", "192.168.1.3")
       .send({ email: testEmail });
 
     const resetToken = requestRes.body.resetToken;
     const newPassword = "newSecurePassword123";
 
-    const res = await request(app).post("/api/auth/reset-password").send({
-      resetToken,
-      newPassword,
-    });
+    const res = await request(app)
+      .post("/api/auth/reset-password")
+      .set("X-Forwarded-For", "192.168.1.4")
+      .send({
+        resetToken,
+        newPassword,
+      });
 
     expect(res.statusCode).toEqual(200);
     expect(res.body).toHaveProperty(
@@ -191,20 +215,26 @@ describe("Password Reset Integration Tests", () => {
     );
 
     // Verify the new password works
-    const loginRes = await request(app).post("/api/auth/login").send({
-      email: testEmail,
-      password: newPassword,
-    });
+    const loginRes = await request(app)
+      .post("/api/auth/login")
+      .set("X-Forwarded-For", "192.168.1.5")
+      .send({
+        email: testEmail,
+        password: newPassword,
+      });
 
     expect(loginRes.statusCode).toEqual(200);
     expect(loginRes.body).toHaveProperty("accessToken");
   });
 
   it("should reject password reset with invalid token", async () => {
-    const res = await request(app).post("/api/auth/reset-password").send({
-      resetToken: "invalid-token",
-      newPassword: "newPassword123",
-    });
+    const res = await request(app)
+      .post("/api/auth/reset-password")
+      .set("X-Forwarded-For", "192.168.1.6")
+      .send({
+        resetToken: "invalid-token",
+        newPassword: "newPassword123",
+      });
 
     expect(res.statusCode).toEqual(400);
     expect(res.body).toHaveProperty(
@@ -222,10 +252,13 @@ describe("Password Reset Integration Tests", () => {
       await user.save();
     }
 
-    const res = await request(app).post("/api/auth/reset-password").send({
-      resetToken: "expired-token",
-      newPassword: "newPassword123",
-    });
+    const res = await request(app)
+      .post("/api/auth/reset-password")
+      .set("X-Forwarded-For", "192.168.1.7")
+      .send({
+        resetToken: "expired-token",
+        newPassword: "newPassword123",
+      });
 
     expect(res.statusCode).toEqual(400);
     expect(res.body).toHaveProperty(
@@ -235,12 +268,144 @@ describe("Password Reset Integration Tests", () => {
   });
 
   it("should reject password reset without required fields", async () => {
-    const res = await request(app).post("/api/auth/reset-password").send({});
+    const res = await request(app)
+      .post("/api/auth/reset-password")
+      .set("X-Forwarded-For", "192.168.1.8")
+      .send({});
 
     expect(res.statusCode).toEqual(400);
     expect(res.body).toHaveProperty(
       "message",
       "Reset token and new password are required"
     );
+  });
+});
+
+describe("Rate Limiting Tests", () => {
+  const testEmail = "ratelimit@example.com";
+  const testPassword = "testPassword123";
+
+  beforeEach(async () => {
+    // Create a test user
+    await request(app)
+      .post("/api/auth/signup")
+      .set("X-Forwarded-For", "192.168.2.1")
+      .send({ email: testEmail, password: testPassword });
+  });
+
+  it("should limit password reset requests", async () => {
+    // Make 3 requests (the limit) with the same IP
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post("/api/auth/request-password-reset")
+        .set("X-Forwarded-For", "192.168.2.2")
+        .send({ email: testEmail });
+      expect(res.statusCode).toEqual(200);
+    }
+
+    // Fourth request should be rate limited
+    const res = await request(app)
+      .post("/api/auth/request-password-reset")
+      .set("X-Forwarded-For", "192.168.2.2")
+      .send({ email: testEmail });
+
+    expect(res.statusCode).toEqual(429);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Too many password reset requests from this IP, please try again after 15 minutes"
+    );
+  });
+
+  it("should limit login attempts", async () => {
+    // Make 5 requests (the limit) with the same IP
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app)
+        .post("/api/auth/login")
+        .set("X-Forwarded-For", "192.168.2.3")
+        .send({ email: testEmail, password: "wrongPassword" });
+      expect(res.statusCode).toEqual(401);
+    }
+
+    // Sixth request should be rate limited
+    const res = await request(app)
+      .post("/api/auth/login")
+      .set("X-Forwarded-For", "192.168.2.3")
+      .send({ email: testEmail, password: "wrongPassword" });
+
+    expect(res.statusCode).toEqual(429);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Too many login attempts from this IP, please try again after an hour"
+    );
+  });
+
+  it("should limit signup attempts", async () => {
+    // Make 3 requests (the limit) with the same IP
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post("/api/auth/signup")
+        .set("X-Forwarded-For", "192.168.2.4")
+        .send({ email: `test${i}@example.com`, password: "password123" });
+      expect(res.statusCode).toEqual(201);
+    }
+
+    // Fourth request should be rate limited
+    const res = await request(app)
+      .post("/api/auth/signup")
+      .set("X-Forwarded-For", "192.168.2.4")
+      .send({ email: "test4@example.com", password: "password123" });
+
+    expect(res.statusCode).toEqual(429);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Too many signup attempts from this IP, please try again after an hour"
+    );
+  });
+
+  it("should reset rate limit after window expires", async () => {
+    // First, make requests up to the limit
+    for (let i = 0; i < 3; i++) {
+      await request(app)
+        .post("/api/auth/request-password-reset")
+        .set("X-Forwarded-For", "192.168.2.5")
+        .send({ email: testEmail });
+    }
+
+    // Should be rate limited
+    const limitedRes = await request(app)
+      .post("/api/auth/request-password-reset")
+      .set("X-Forwarded-For", "192.168.2.5")
+      .send({ email: testEmail });
+    expect(limitedRes.statusCode).toEqual(429);
+
+    // Clear the test store to simulate time passing
+    testStore.clear();
+
+    // Should be able to make requests again
+    const res = await request(app)
+      .post("/api/auth/request-password-reset")
+      .set("X-Forwarded-For", "192.168.2.5")
+      .send({ email: testEmail });
+    expect(res.statusCode).toEqual(200);
+  });
+
+  it("should handle different IPs separately", async () => {
+    // Make requests from different IPs
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post("/api/auth/request-password-reset")
+        .set("X-Forwarded-For", `192.168.2.${i + 6}`)
+        .send({ email: testEmail });
+      expect(res.statusCode).toEqual(200);
+    }
+
+    // Each IP should be able to make its own requests
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post("/api/auth/request-password-reset")
+        .set("X-Forwarded-For", `192.168.2.${i + 6}`)
+        .send({ email: testEmail });
+      expect(res.statusCode).toEqual(200);
+    }
   });
 });

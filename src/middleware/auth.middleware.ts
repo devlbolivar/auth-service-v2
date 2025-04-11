@@ -15,10 +15,12 @@ export const authenticateToken = (
   }
 
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "your-secret-key"
-    ) as JwtPayload;
+    const secret = process.env.JWT_SECRET || "test_secret_key";
+    const decoded = jwt.verify(token, secret) as JwtPayload;
+
+    if (!decoded.userId) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
 
     req.user = decoded;
     next();

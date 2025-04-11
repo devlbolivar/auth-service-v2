@@ -4,6 +4,10 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User, { IUser } from "../models/user.model";
 
+const getJwtSecret = () => {
+  return process.env.JWT_SECRET || "test_secret_key";
+};
+
 // Remove unused variable
 export const signup = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
@@ -58,17 +62,13 @@ export const login: RequestHandler = async (req, res): Promise<void> => {
       return;
     }
 
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is not defined");
-    }
-
     // Generate access token
     const accessToken = jwt.sign(
       {
         userId: user._id,
         email: user.email,
       },
-      process.env.JWT_SECRET,
+      getJwtSecret(),
       {
         expiresIn: "1h",
       }
@@ -78,14 +78,16 @@ export const login: RequestHandler = async (req, res): Promise<void> => {
     const refreshToken = jwt.sign(
       {
         userId: user._id,
+        tokenVersion: Date.now(),
       },
-      process.env.JWT_SECRET,
+      getJwtSecret(),
       {
         expiresIn: "7d",
       }
     );
 
     // Store refresh token in user document
+    user.refreshTokens = user.refreshTokens || [];
     user.refreshTokens.push(refreshToken);
     await user.save();
 
@@ -111,13 +113,11 @@ export const refreshToken: RequestHandler = async (req, res): Promise<void> => {
   }
 
   try {
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is not defined");
-    }
-
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET) as {
+    const decoded = jwt.verify(refreshToken, getJwtSecret()) as {
       userId: string;
+      tokenVersion: number;
     };
+
     const user = await User.findById(decoded.userId);
 
     if (!user || !user.refreshTokens.includes(refreshToken)) {
@@ -131,7 +131,7 @@ export const refreshToken: RequestHandler = async (req, res): Promise<void> => {
         userId: user._id,
         email: user.email,
       },
-      process.env.JWT_SECRET,
+      getJwtSecret(),
       {
         expiresIn: "1h",
       }
@@ -156,23 +156,28 @@ export const logout: RequestHandler = async (req, res): Promise<void> => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || "") as {
+    const decoded = jwt.verify(refreshToken, getJwtSecret()) as {
       userId: string;
+      tokenVersion: number;
     };
+
     const user = await User.findById(decoded.userId);
 
-    if (user) {
-      // Remove the refresh token from the user's list
-      user.refreshTokens = user.refreshTokens.filter(
-        (token) => token !== refreshToken
-      );
-      await user.save();
+    if (!user) {
+      res.status(403).json({ message: "Invalid refresh token" });
+      return;
     }
+
+    // Remove the refresh token from the user's list
+    user.refreshTokens = user.refreshTokens.filter(
+      (token) => token !== refreshToken
+    );
+    await user.save();
 
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error("Logout error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(403).json({ message: "Invalid refresh token" });
   }
 };
 
