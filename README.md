@@ -1,16 +1,22 @@
 # Authentication Service V2
 
-A robust authentication service built with Node.js, Express, TypeScript, and MongoDB. This service provides secure user authentication and authorization functionality.
+A robust and secure authentication service built with Node.js, Express, TypeScript, and MongoDB. This service provides comprehensive user authentication and authorization functionality with enhanced security features.
 
 ## Features
 
-- User registration and login
+- User registration and login with email verification
 - Password hashing using bcrypt
-- JWT-based authentication
-- MongoDB database integration
-- TypeScript for type safety
+- JWT-based authentication with refresh tokens
+- MongoDB database integration with Mongoose
+- TypeScript for type safety and better development experience
 - Docker support for containerization
 - Comprehensive test suite with Jest
+- Rate limiting for API endpoints
+- Security headers with Helmet
+- Input validation with express-validator
+- Cookie-based session management
+- Password reset functionality
+- Security audit capabilities
 
 ## Prerequisites
 
@@ -36,21 +42,21 @@ npm install
 
 3. Create a `.env` file in the root directory with the following variables:
 
-```
+```env
 MONGODB_URI=your_mongodb_connection_string
 JWT_SECRET=your_jwt_secret
+JWT_REFRESH_SECRET=your_refresh_token_secret
 PORT=3000
+NODE_ENV=development
 ```
 
 ## Development
 
-To start the development server:
+To start the development server with hot-reloading:
 
 ```bash
 npm run dev
 ```
-
-The server will start with hot-reloading enabled.
 
 ## Building
 
@@ -66,6 +72,14 @@ Run the test suite:
 
 ```bash
 npm test
+```
+
+## Security Audit
+
+Run security checks:
+
+```bash
+npm run audit
 ```
 
 ## Docker Support
@@ -87,13 +101,15 @@ docker-compose up
 ## Project Structure
 
 ```
-src/           # Source code
-tests/         # Test files
-├── src/       # Main application code
-├── tests/     # Test files
-├── .env       # Environment variables
-├── Dockerfile # Docker configuration
-└── docker-compose.yml # Docker Compose configuration
+src/
+├── config/         # Configuration files
+├── controllers/    # Route controllers
+├── middleware/     # Custom middleware
+├── models/         # Database models
+├── routes/         # API routes
+├── types/          # TypeScript type definitions
+├── app.ts          # Express application setup
+└── index.ts        # Application entry point
 ```
 
 ## Dependencies
@@ -106,6 +122,10 @@ tests/         # Test files
 - jsonwebtoken - JWT implementation
 - cors - Cross-origin resource sharing
 - dotenv - Environment variable management
+- helmet - Security headers
+- express-rate-limit - Rate limiting
+- express-validator - Input validation
+- cookie-parser - Cookie management
 
 ### Development Dependencies
 
@@ -114,6 +134,29 @@ tests/         # Test files
 - ts-jest - TypeScript testing support
 - ts-node-dev - Development server
 - MongoDB Memory Server - In-memory MongoDB for testing
+- Supertest - HTTP testing
+- Various TypeScript type definitions
+
+## API Endpoints
+
+- POST /api/auth/register - User registration
+- POST /api/auth/login - User login
+- POST /api/auth/refresh - Refresh access token
+- POST /api/auth/logout - User logout
+- POST /api/auth/forgot-password - Request password reset
+- POST /api/auth/reset-password - Reset password
+- GET /api/auth/verify-email - Email verification
+
+## Security Features
+
+- Rate limiting on all endpoints
+- Helmet security headers
+- Input validation and sanitization
+- Secure password hashing
+- JWT token rotation
+- Cookie security
+- CORS protection
+- Environment variable protection
 
 ## License
 
