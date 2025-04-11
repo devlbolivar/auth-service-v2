@@ -2,6 +2,7 @@ import request from "supertest";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import app from "../src/app";
+import User from "../src/models/user.model";
 
 let mongoServer: MongoMemoryServer;
 
@@ -126,5 +127,120 @@ describe("Protected Routes Integration Tests", () => {
     const res = await request(app).get("/api/protected/profile");
 
     expect(res.statusCode).toEqual(401);
+  });
+});
+
+describe("Password Reset Integration Tests", () => {
+  const testEmail = "reset@example.com";
+  const testPassword = "originalPassword";
+  let resetToken: string;
+
+  beforeEach(async () => {
+    // Create a test user
+    await request(app)
+      .post("/api/auth/signup")
+      .send({ email: testEmail, password: testPassword });
+  });
+
+  it("should request password reset for existing user", async () => {
+    const res = await request(app)
+      .post("/api/auth/request-password-reset")
+      .send({ email: testEmail });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Password reset link has been sent to your email"
+    );
+    expect(res.body).toHaveProperty("resetToken");
+
+    // Store the reset token for the next test
+    resetToken = res.body.resetToken;
+  });
+
+  it("should request password reset for non-existent user", async () => {
+    const res = await request(app)
+      .post("/api/auth/request-password-reset")
+      .send({ email: "nonexistent@example.com" });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty(
+      "message",
+      "If your email is registered, you will receive a password reset link"
+    );
+  });
+
+  it("should reset password with valid token", async () => {
+    // First, get a reset token
+    const requestRes = await request(app)
+      .post("/api/auth/request-password-reset")
+      .send({ email: testEmail });
+
+    const resetToken = requestRes.body.resetToken;
+    const newPassword = "newSecurePassword123";
+
+    const res = await request(app).post("/api/auth/reset-password").send({
+      resetToken,
+      newPassword,
+    });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Password has been reset successfully"
+    );
+
+    // Verify the new password works
+    const loginRes = await request(app).post("/api/auth/login").send({
+      email: testEmail,
+      password: newPassword,
+    });
+
+    expect(loginRes.statusCode).toEqual(200);
+    expect(loginRes.body).toHaveProperty("accessToken");
+  });
+
+  it("should reject password reset with invalid token", async () => {
+    const res = await request(app).post("/api/auth/reset-password").send({
+      resetToken: "invalid-token",
+      newPassword: "newPassword123",
+    });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Invalid or expired reset token"
+    );
+  });
+
+  it("should reject password reset with expired token", async () => {
+    // Create a user and set an expired reset token
+    const user = await User.findOne({ email: testEmail });
+    if (user) {
+      user.resetPasswordToken = "expired-token";
+      user.resetPasswordExpires = new Date(Date.now() - 3600000); // 1 hour ago
+      await user.save();
+    }
+
+    const res = await request(app).post("/api/auth/reset-password").send({
+      resetToken: "expired-token",
+      newPassword: "newPassword123",
+    });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Invalid or expired reset token"
+    );
+  });
+
+  it("should reject password reset without required fields", async () => {
+    const res = await request(app).post("/api/auth/reset-password").send({});
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body).toHaveProperty(
+      "message",
+      "Reset token and new password are required"
+    );
   });
 });
