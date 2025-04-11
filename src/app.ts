@@ -2,13 +2,63 @@ import express from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth.routes";
 import protectedRoutes from "./routes/protected.routes";
+import cookieParser from "cookie-parser";
+import helmet from "helmet";
 
 // Create the Express app
 const app = express();
 
 // Setup middlewares
-app.use(cors());
-app.use(express.json());
+const corsOptions = {
+  origin: process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",")
+    : "*",
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+  maxAge: 86400, // 24 hours
+};
+app.use(cors(corsOptions));
+
+// Parse cookies for token-based auth
+app.use(cookieParser());
+
+// Security headers with Helmet
+app.use(helmet());
+
+// Content-Type options
+app.use(
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  })
+);
+
+// Prevent MIME type sniffing
+app.use(helmet.noSniff());
+
+// Set strict transport security
+if (process.env.NODE_ENV === "production") {
+  app.use(
+    helmet.hsts({
+      maxAge: 31536000, // 1 year in seconds
+      includeSubDomains: true,
+      preload: true,
+    })
+  );
+}
+
+// Parse JSON request body with size limits
+app.use(express.json({ limit: "100kb" }));
 
 // Mount routes
 app.use("/api/auth", authRoutes);

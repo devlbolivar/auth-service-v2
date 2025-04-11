@@ -12,18 +12,33 @@ import {
   loginLimiter,
   signupLimiter,
 } from "../middleware/rateLimiter";
+import {
+  validateSignup,
+  validateLogin,
+  validatePasswordReset,
+  validateResetPassword,
+} from "../middleware/validation.middleware";
+import { csrfProtection } from "../middleware/auth.middleware";
 
 const router = Router();
 
-router.post("/signup", signupLimiter, signup);
-router.post("/login", loginLimiter, login);
+// Apply validation middleware before route handlers
+router.post("/signup", signupLimiter, validateSignup, signup);
+router.post("/login", loginLimiter, validateLogin, login);
 router.post("/refresh-token", refreshToken);
-router.post("/logout", logout);
+router.post("/logout", csrfProtection, logout);
 router.post(
   "/request-password-reset",
   passwordResetLimiter,
+  validatePasswordReset,
   requestPasswordReset
 );
-router.post("/reset-password", passwordResetLimiter, resetPassword);
+router.post(
+  "/reset-password",
+  passwordResetLimiter,
+  validateResetPassword,
+  csrfProtection,
+  resetPassword
+);
 
 export default router;
