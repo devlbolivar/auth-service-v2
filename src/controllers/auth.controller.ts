@@ -61,7 +61,71 @@ export const login: RequestHandler = async (req, res): Promise<void> => {
       throw new Error("JWT_SECRET is not defined");
     }
 
-    const token = jwt.sign(
+    // Generate access token
+    const accessToken = jwt.sign(
+      {
+        userId: user._id,
+        email: user.email,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    // Generate refresh token
+    const refreshToken = jwt.sign(
+      {
+        userId: user._id,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    // Store refresh token in user document
+    user.refreshTokens.push(refreshToken);
+    await user.save();
+
+    res.json({
+      message: "Login successful",
+      accessToken,
+      refreshToken,
+      userId: user._id,
+    });
+  } catch (error) {
+    // Log error for debugging
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const refreshToken: RequestHandler = async (req, res): Promise<void> => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    res.status(400).json({ message: "Refresh token is required" });
+    return;
+  }
+
+  try {
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET is not defined");
+    }
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET) as {
+      userId: string;
+    };
+    const user = await User.findById(decoded.userId);
+
+    if (!user || !user.refreshTokens.includes(refreshToken)) {
+      res.status(403).json({ message: "Invalid refresh token" });
+      return;
+    }
+
+    // Generate new access token
+    const accessToken = jwt.sign(
       {
         userId: user._id,
         email: user.email,
@@ -73,13 +137,40 @@ export const login: RequestHandler = async (req, res): Promise<void> => {
     );
 
     res.json({
-      message: "Login successful",
-      token,
-      userId: user._id,
+      message: "Token refreshed successfully",
+      accessToken,
     });
   } catch (error) {
-    // Log error for debugging
-    console.error("Login error:", error);
+    console.error("Refresh token error:", error);
+    res.status(403).json({ message: "Invalid refresh token" });
+  }
+};
+
+export const logout: RequestHandler = async (req, res): Promise<void> => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    res.status(400).json({ message: "Refresh token is required" });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || "") as {
+      userId: string;
+    };
+    const user = await User.findById(decoded.userId);
+
+    if (user) {
+      // Remove the refresh token from the user's list
+      user.refreshTokens = user.refreshTokens.filter(
+        (token) => token !== refreshToken
+      );
+      await user.save();
+    }
+
+    res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };

@@ -43,7 +43,57 @@ describe("Auth API Integration Tests", () => {
       .send({ email: "login@example.com", password: "mypassword" });
 
     expect(res.statusCode).toEqual(200);
-    expect(res.body).toHaveProperty("token");
+    expect(res.body).toHaveProperty("accessToken");
+    expect(res.body).toHaveProperty("refreshToken");
+    expect(res.body).toHaveProperty("userId");
+  });
+
+  it("should refresh access token with valid refresh token", async () => {
+    // First, login to get tokens
+    const loginRes = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "login@example.com", password: "mypassword" });
+
+    const { refreshToken } = loginRes.body;
+
+    // Use refresh token to get new access token
+    const refreshRes = await request(app)
+      .post("/api/auth/refresh-token")
+      .send({ refreshToken });
+
+    expect(refreshRes.statusCode).toEqual(200);
+    expect(refreshRes.body).toHaveProperty("accessToken");
+  });
+
+  it("should reject invalid refresh token", async () => {
+    const res = await request(app)
+      .post("/api/auth/refresh-token")
+      .send({ refreshToken: "invalid-token" });
+
+    expect(res.statusCode).toEqual(403);
+  });
+
+  it("should logout and invalidate refresh token", async () => {
+    // First, login to get tokens
+    const loginRes = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "login@example.com", password: "mypassword" });
+
+    const { refreshToken } = loginRes.body;
+
+    // Logout
+    const logoutRes = await request(app)
+      .post("/api/auth/logout")
+      .send({ refreshToken });
+
+    expect(logoutRes.statusCode).toEqual(200);
+
+    // Try to use the logged out refresh token
+    const refreshRes = await request(app)
+      .post("/api/auth/refresh-token")
+      .send({ refreshToken });
+
+    expect(refreshRes.statusCode).toEqual(403);
   });
 });
 
@@ -60,7 +110,7 @@ describe("Protected Routes Integration Tests", () => {
       .post("/api/auth/login")
       .send({ email: "protected@example.com", password: "securepass" });
 
-    authToken = loginRes.body.token;
+    authToken = loginRes.body.accessToken;
   });
 
   it("should access protected route with valid token", async () => {
