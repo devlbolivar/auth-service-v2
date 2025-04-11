@@ -35,6 +35,9 @@ describe("Auth API Integration Tests", () => {
       .post("/api/auth/signup")
       .send({ email: "login@example.com", password: "mypassword" });
 
+    // Set JWT_SECRET environment variable before login test
+    process.env.JWT_SECRET = "test_secret_key";
+
     const res = await request(app)
       .post("/api/auth/login")
       .send({ email: "login@example.com", password: "mypassword" });

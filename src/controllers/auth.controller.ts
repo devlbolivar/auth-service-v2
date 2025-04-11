@@ -3,10 +3,16 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User, { IUser } from "../models/user.model";
 
-const users: { email: string; password: string }[] = []; // temp in-memory
-
-export const signup = async (req: Request, res: Response) => {
+// Remove unused variable
+export const signup = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
+
+  // Add input validation
+  if (!email || !password) {
+    res.status(400).json({ message: "Email and password are required" });
+    return;
+  }
+
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -14,19 +20,32 @@ export const signup = async (req: Request, res: Response) => {
       return;
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    const saltRounds = 10;
+    const hashed = await bcrypt.hash(password, saltRounds);
     const user: IUser = await User.create({ email, password: hashed });
 
-    res.status(201).json({ message: "User created", userId: user._id });
+    res.status(201).json({
+      message: "User created",
+      userId: user._id,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    // Log error for debugging
+    console.error("Signup error:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
-export const login: RequestHandler = async (req, res) => {
+export const login: RequestHandler = async (req, res): Promise<void> => {
+  const { email, password } = req.body;
+
+  // Add input validation
+  if (!email || !password) {
+    res.status(400).json({ message: "Email and password are required" });
+    return;
+  }
+
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select("+password");
     if (!user) {
       res.status(401).json({ message: "Invalid credentials" });
       return;
@@ -38,12 +57,29 @@ export const login: RequestHandler = async (req, res) => {
       return;
     }
 
-    const token = jwt.sign({ email }, process.env.JWT_SECRET || "secret", {
-      expiresIn: "1h",
-    });
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET is not defined");
+    }
 
-    res.json({ token });
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        email: user.email,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    res.json({
+      message: "Login successful",
+      token,
+      userId: user._id,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    // Log error for debugging
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
