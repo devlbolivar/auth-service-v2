@@ -6,6 +6,14 @@ services:
       - "4000:4000"
     env_file:
       - .env
+    depends_on:
+      - mongo
+  mongo:
+    image: mongo:5
+    ports:
+      - "27017:27017"
     volumes:
-      - .:/app
-      - /app/node_modules
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
